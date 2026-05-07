@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOP 아이디어 제안서 접수</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; min-width: 140px; }
+        td { width: auto; }
+        tr:nth-child(1) th, tr:nth-child(1) td,
+        tr:nth-child(2) th:first-child,
+        tr:nth-child(2) th:nth-child(3),
+        tr:nth-child(3) th, tr:nth-child(3) td,
+        tr:nth-child(4) th:first-child,
+        tr:nth-child(5) th, tr:nth-child(5) td,
+        tr:nth-child(6) th:first-child,
+        tr:nth-child(7) th:first-child,
+        tr:nth-child(8) th:first-child,
+        tr:nth-child(9) th:first-child,
+        tr:nth-child(10) th:first-child { text-align: center; }
+        input, textarea, select { width: 100%; padding: 8px; box-sizing: border-box; }
+        button { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+    </style>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <h1>TOP 아이디어 제안서</h1>
+    <form id="proposalForm">
+        <table>
+            <tr>
+                <th>사번</th>
+                <td><input type="text" name="employee_id"></td>
+                <th>성명</th>
+                <td><input type="text" name="proposer_name" required></td>
+                <th>소속</th>
+                <td><input type="text" name="department"></td>
+            </tr>
+            <tr>
+                <th>제안명</th>
+                <td colspan="3"><input type="text" name="proposal_title" required></td>
+                <th>제안일</th>
+                <td><input type="date" name="proposal_date"></td>
+            </tr>
+            <tr>
+                <th>제안분야</th>
+                <td colspan="5"><select name="proposal_category">
+                    <option value="설계">설계</option>
+                    <option value="수행">수행</option>
+                    <option value="외주">외주</option>
+                    <option value="구매">구매</option>
+                    <option value="기타">기타</option>
+                </select></td>
+            </tr>
+            <tr>
+                <th>현상 및 문제점</th>
+                <td colspan="5"><textarea name="problem_statement" rows="5"></textarea></td>
+            </tr>
+            <tr>
+                <th>제안안 설명<br>(개선 전/후)</th>
+                <td colspan="5"><input type="text" name="first_reviewer"></td>
+            </tr>
+            <tr>
+                <th>유형효과</th>
+                <td colspan="5"><input type="text" name="type_effect"></td>
+            </tr>
+            <tr>
+                <th>무형효과</th>
+                <td colspan="5"><input type="text" name="intangible_effect"></td>
+            </tr>
+            <tr>
+                <th>제약조건</th>
+                <td colspan="5"><input type="text" name="constraint_conditions"></td>
+            </tr>
+            <tr>
+                <th>투자비</th>
+                <td colspan="5"><input type="text" name="investment_cost"></td>
+            </tr>
+            <tr>
+                <th>과제 수행 계획</th>
+                <td colspan="5"><textarea name="proposal_plan" rows="4" required></textarea></td>
+            </tr>
+        </table>
+        <br>
+        <button type="submit">제출</button>
+    </form>
+    <script>
+        const form = document.getElementById('proposalForm');
+        const headers = [
+            '사번', '성명', '소속', '제안명', '제안일', '제안분야',
+            '현상 및 문제점', '제안안 설명', '유형효과', '무형효과',
+            '제약조건', '투자비', '과제 수행 계획'
+        ];
+
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            const data = new FormData(form);
+            const row = {
+                사번: data.get('employee_id') || '',
+                성명: data.get('proposer_name') || '',
+                소속: data.get('department') || '',
+                제안명: data.get('proposal_title') || '',
+                제안일: data.get('proposal_date') || '',
+                제안분야: data.get('proposal_category') || '',
+                '현상 및 문제점': data.get('problem_statement') || '',
+                '제안안 설명': data.get('first_reviewer') || '',
+                유형효과: data.get('type_effect') || '',
+                무형효과: data.get('intangible_effect') || '',
+                제약조건: data.get('constraint_conditions') || '',
+                투자비: data.get('investment_cost') || '',
+                '과제 수행 계획': data.get('proposal_plan') || ''
+            };
+
+            const worksheet = XLSX.utils.json_to_sheet([row], { header: headers });
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, '아이디어제안서');
+            XLSX.writeFile(workbook, 'TOP_아이디어제안서.xlsx');
+        });
+    </script>
+</body>
+</html>
