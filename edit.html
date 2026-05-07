@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOP 아이디어 제안서 수정</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { text-align: center; }
+        .toolbar { display: flex; justify-content: flex-end; margin-top: 16px; }
+        button { padding: 10px 20px; background-color: #555; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #444; }
+        .message { min-height: 20px; margin-top: 12px; color: #333; }
+        .message.error { color: #b00020; }
+        .table-wrapper { margin-top: 20px; overflow-x: auto; }
+        table { width: max-content; min-width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #000; padding: 8px; vertical-align: top; }
+        th { min-width: 90px; background-color: #dbe8f4; text-align: center; font-weight: 700; }
+        td { min-width: 110px; }
+        .group-header { height: 32px; }
+        .filter-header { position: relative; padding-right: 22px; }
+        .filter-header::after {
+            content: "";
+            position: absolute;
+            right: 4px;
+            bottom: 3px;
+            width: 14px;
+            height: 14px;
+            border: 1px solid #9aa7b1;
+            background: #eef3f8;
+        }
+        .filter-header::before {
+            content: "";
+            position: absolute;
+            right: 8px;
+            bottom: 7px;
+            z-index: 1;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid #69747c;
+        }
+        .wide { min-width: 280px; }
+        .detail { min-width: 460px; }
+        input, textarea { width: 100%; padding: 8px; box-sizing: border-box; font: inherit; }
+        textarea { min-height: 120px; resize: vertical; }
+        input[readonly], textarea[readonly] { background-color: #fafafa; color: #333; }
+    </style>
+</head>
+<body>
+    <h1>TOP 아이디어 제안서 수정</h1>
+    <div class="toolbar">
+        <button type="button" id="backButton">목록으로</button>
+    </div>
+    <div id="message" class="message" role="status"></div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th rowspan="2" class="filter-header">NO</th>
+                    <th rowspan="2" class="filter-header">Code</th>
+                    <th colspan="6" class="group-header">제안자</th>
+                    <th class="group-header">제안일</th>
+                    <th class="group-header">TOP추진실 담당자</th>
+                    <th class="group-header">담당자</th>
+                    <th colspan="5" class="group-header">아이디어 제안 요약</th>
+                </tr>
+                <tr>
+                    <th class="filter-header">본부</th>
+                    <th class="filter-header">사업장</th>
+                    <th class="filter-header">사번</th>
+                    <th class="filter-header">직급</th>
+                    <th class="filter-header">소속</th>
+                    <th class="filter-header">성명</th>
+                    <th class="filter-header">제안일</th>
+                    <th class="filter-header">(참고)<br>검토담당</th>
+                    <th class="filter-header">1차 검토<br>담당자</th>
+                    <th class="filter-header">대분류</th>
+                    <th class="filter-header">중분류</th>
+                    <th class="filter-header">소분류</th>
+                    <th class="filter-header wide">제안 제목</th>
+                    <th class="filter-header detail">제안 내용 상세</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr id="valueRow"></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const API_BASE = window.location.port === '8000' ? '' : 'http://localhost:8000';
+        const params = new URLSearchParams(window.location.search);
+        const submissionId = params.get('id');
+        const message = document.getElementById('message');
+        const valueRow = document.getElementById('valueRow');
+        const backButton = document.getElementById('backButton');
+
+        const columns = [
+            { header: 'NO', getValue: (submission) => submission.id, readonly: true },
+            { header: 'Code', getValue: () => '' },
+            { header: '본부', getValue: () => '' },
+            { header: '사업장', getValue: () => '' },
+            { header: '사번', key: '사번' },
+            { header: '직급', key: '직급' },
+            { header: '소속', key: '소속' },
+            { header: '성명', key: '성명' },
+            { header: '제안일', key: '제안일' },
+            { header: '(참고) 검토담당', getValue: () => '' },
+            { header: '1차 검토 담당자', getValue: () => '' },
+            { header: '대분류', key: '제안분야' },
+            { header: '중분류', getValue: () => '' },
+            { header: '소분류', getValue: () => '' },
+            { header: '제안 제목', key: '제안명' },
+            { header: '제안 내용 상세', getValue: getProposalDetail, multiline: true }
+        ];
+
+        function setMessage(text, isError = false) {
+            message.textContent = text;
+            message.classList.toggle('error', isError);
+        }
+
+        function renderValues(submission) {
+            valueRow.innerHTML = columns.map((column) => {
+                const value = column.getValue ? column.getValue(submission) : submission.data[column.key] || '';
+                const readonly = column.readonly ? ' readonly' : '';
+
+                if (column.multiline) {
+                    return `<td><textarea name="${column.header}"${readonly}>${escapeHtml(value)}</textarea></td>`;
+                }
+
+                return `<td><input type="text" name="${column.header}" value="${escapeHtml(value)}"${readonly}></td>`;
+            }).join('');
+        }
+
+        function getProposalDetail(submission) {
+            const data = submission.data || {};
+            const detailFields = [
+                '현상 및 문제점',
+                '제안안 설명',
+                '유형효과',
+                '무형효과',
+                '제약조건',
+                '투자비',
+                '과제 수행 계획'
+            ];
+
+            return detailFields
+                .map((field) => {
+                    const value = data[field] || '';
+                    return value ? `[${field}]\n${value}` : '';
+                })
+                .filter(Boolean)
+                .join('\n\n');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        async function loadSubmission() {
+            if (!submissionId) {
+                setMessage('제출 ID가 없습니다.', true);
+                return;
+            }
+
+            let adminPassword = sessionStorage.getItem('adminPassword') || '';
+
+            if (!adminPassword) {
+                adminPassword = window.prompt('관리자 비밀번호를 입력하세요.') || '';
+                sessionStorage.setItem('adminPassword', adminPassword);
+            }
+
+            setMessage('제출 내용을 불러오는 중입니다...');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/submissions/${encodeURIComponent(submissionId)}`, {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+
+                if (!response.ok) {
+                    throw new Error('조회 요청이 실패했습니다.');
+                }
+
+                const submission = await response.json();
+                renderValues(submission);
+                setMessage('제출 내용을 불러왔습니다.');
+            } catch (error) {
+                setMessage('제출 내용을 불러오지 못했습니다.', true);
+            }
+        }
+
+        backButton.addEventListener('click', function() {
+            window.location.href = 'admin.html';
+        });
+
+        loadSubmission();
+    </script>
+</body>
+</html>

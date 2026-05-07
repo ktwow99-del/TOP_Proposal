@@ -23,10 +23,16 @@
         tr:nth-child(9) th:first-child,
         tr:nth-child(10) th:first-child { text-align: center; }
         input, textarea, select { width: 100%; padding: 8px; box-sizing: border-box; }
+        .split-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
         button { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
         button:hover { background-color: #45a049; }
+        button.secondary { background-color: #555; }
+        button.secondary:hover { background-color: #444; }
+        .actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .admin-actions { display: flex; justify-content: flex-end; gap: 8px; }
+        .message { min-height: 20px; margin-top: 12px; color: #333; }
+        .message.error { color: #b00020; }
     </style>
-    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 </head>
 <body>
     <h1>TOP 아이디어 제안서</h1>
@@ -37,8 +43,13 @@
                 <td><input type="text" name="employee_id"></td>
                 <th>성명</th>
                 <td><input type="text" name="proposer_name" required></td>
-                <th>소속</th>
-                <td><input type="text" name="department"></td>
+                <th>소속/직급</th>
+                <td>
+                    <div class="split-inputs">
+                        <input type="text" name="department" placeholder="소속">
+                        <input type="text" name="position" placeholder="직급">
+                    </div>
+                </td>
             </tr>
             <tr>
                 <th>제안명</th>
@@ -62,64 +73,115 @@
             </tr>
             <tr>
                 <th>제안안 설명<br>(개선 전/후)</th>
-                <td colspan="5"><input type="text" name="first_reviewer"></td>
+                <td colspan="5"><textarea name="first_reviewer" rows="5"></textarea></td>
             </tr>
             <tr>
                 <th>유형효과</th>
-                <td colspan="5"><input type="text" name="type_effect"></td>
+                <td colspan="5"><textarea name="type_effect" rows="5"></textarea></td>
             </tr>
             <tr>
                 <th>무형효과</th>
-                <td colspan="5"><input type="text" name="intangible_effect"></td>
+                <td colspan="5"><textarea name="intangible_effect" rows="5"></textarea></td>
             </tr>
             <tr>
                 <th>제약조건</th>
-                <td colspan="5"><input type="text" name="constraint_conditions"></td>
+                <td colspan="5"><textarea name="constraint_conditions" rows="5"></textarea></td>
             </tr>
             <tr>
                 <th>투자비</th>
-                <td colspan="5"><input type="text" name="investment_cost"></td>
+                <td colspan="5"><textarea name="investment_cost" rows="5"></textarea></td>
             </tr>
             <tr>
                 <th>과제 수행 계획</th>
-                <td colspan="5"><textarea name="proposal_plan" rows="4" required></textarea></td>
+                <td colspan="5"><textarea name="proposal_plan" rows="5" required></textarea></td>
             </tr>
         </table>
         <br>
-        <button type="submit">제출</button>
+        <div class="actions">
+            <button type="submit">제출</button>
+            <div class="admin-actions">
+                <button type="button" id="adminButton" class="secondary">관리자</button>
+            </div>
+        </div>
     </form>
+    <div id="message" class="message" role="status"></div>
     <script>
         const form = document.getElementById('proposalForm');
+        const adminButton = document.getElementById('adminButton');
+        const message = document.getElementById('message');
+        const API_BASE = window.location.port === '8000' ? '' : 'http://localhost:8000';
+
         const headers = [
-            '사번', '성명', '소속', '제안명', '제안일', '제안분야',
+            '사번', '성명', '소속', '직급', '제안명', '제안일', '제안분야',
             '현상 및 문제점', '제안안 설명', '유형효과', '무형효과',
             '제약조건', '투자비', '과제 수행 계획'
         ];
+        const fieldMap = [
+            ['employee_id', '사번'],
+            ['proposer_name', '성명'],
+            ['department', '소속'],
+            ['position', '직급'],
+            ['proposal_title', '제안명'],
+            ['proposal_date', '제안일'],
+            ['proposal_category', '제안분야'],
+            ['problem_statement', '현상 및 문제점'],
+            ['first_reviewer', '제안안 설명'],
+            ['type_effect', '유형효과'],
+            ['intangible_effect', '무형효과'],
+            ['constraint_conditions', '제약조건'],
+            ['investment_cost', '투자비'],
+            ['proposal_plan', '과제 수행 계획']
+        ];
 
-        form.addEventListener('submit', function(event) {
-            event.preventDefault();
+        function setMessage(text, isError = false) {
+            message.textContent = text;
+            message.classList.toggle('error', isError);
+        }
 
+        function getFormRow() {
             const data = new FormData(form);
-            const row = {
-                사번: data.get('employee_id') || '',
-                성명: data.get('proposer_name') || '',
-                소속: data.get('department') || '',
-                제안명: data.get('proposal_title') || '',
-                제안일: data.get('proposal_date') || '',
-                제안분야: data.get('proposal_category') || '',
-                '현상 및 문제점': data.get('problem_statement') || '',
-                '제안안 설명': data.get('first_reviewer') || '',
-                유형효과: data.get('type_effect') || '',
-                무형효과: data.get('intangible_effect') || '',
-                제약조건: data.get('constraint_conditions') || '',
-                투자비: data.get('investment_cost') || '',
-                '과제 수행 계획': data.get('proposal_plan') || ''
-            };
+            return fieldMap.reduce((row, [fieldName, label]) => {
+                row[label] = data.get(fieldName) || '';
+                return row;
+            }, {});
+        }
 
-            const worksheet = XLSX.utils.json_to_sheet([row], { header: headers });
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, '아이디어제안서');
-            XLSX.writeFile(workbook, 'TOP_아이디어제안서.xlsx');
+        form.addEventListener('submit', async function(event) {
+            event.preventDefault();
+            setMessage('제출 내용을 저장하는 중입니다...');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/submissions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: getFormRow() })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    const fields = Array.isArray(error.fields) ? ` (${error.fields.join(', ')})` : '';
+                    throw new Error(`저장 요청이 실패했습니다.${fields}`);
+                }
+
+                form.reset();
+                setMessage('제출 내용이 로컬 서버에 저장되었습니다.');
+            } catch (error) {
+                setMessage(`${error.message} 로컬 서버 주소는 http://localhost:8000 입니다.`, true);
+            }
+        });
+
+        adminButton.addEventListener('click', function() {
+            const password = window.prompt('관리자 비밀번호를 입력하세요.');
+
+            if (password === 'topadmin') {
+                sessionStorage.setItem('adminPassword', password);
+                window.location.href = 'admin.html';
+                return;
+            }
+
+            if (password !== null) {
+                setMessage('비밀번호가 올바르지 않습니다.', true);
+            }
         });
     </script>
 </body>

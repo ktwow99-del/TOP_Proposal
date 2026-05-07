@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOP 아이디어 제출 현황</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { text-align: center; }
+        button { padding: 10px 20px; color: white; border: none; cursor: pointer; }
+        button:hover { filter: brightness(0.94); }
+        button.secondary { background-color: #555; }
+        button.edit { background-color: #f59e0b; padding: 6px 12px; }
+        button.delete { background-color: #c62828; padding: 6px 12px; }
+        .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+        .message { min-height: 20px; margin-top: 12px; color: #333; }
+        .message.error { color: #b00020; }
+        .table-wrapper { margin-top: 20px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+        th { background-color: #f2f2f2; min-width: 120px; text-align: center; }
+        .action-cell { min-width: 70px; text-align: center; white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <h1>TOP 아이디어 제출 현황</h1>
+    <div class="toolbar">
+        <button type="button" id="backButton" class="secondary">제안서 작성</button>
+    </div>
+    <div id="message" class="message" role="status"></div>
+    <div id="submissionsTable" class="table-wrapper"></div>
+
+    <script>
+        const API_BASE = window.location.port === '8000' ? '' : 'http://localhost:8000';
+        const backButton = document.getElementById('backButton');
+        const message = document.getElementById('message');
+        const submissionsTable = document.getElementById('submissionsTable');
+        let adminPassword = sessionStorage.getItem('adminPassword') || '';
+
+        function setMessage(text, isError = false) {
+            message.textContent = text;
+            message.classList.toggle('error', isError);
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function renderSubmissions(submissions) {
+            if (!submissions.length) {
+                submissionsTable.innerHTML = '<p>저장된 제출 내역이 없습니다.</p>';
+                return;
+            }
+
+            const tableHeaders = ['제안일', '사번', '성명', '제안명'];
+            const rows = submissions.map((submission) => {
+                const dataCells = tableHeaders.map((header) => {
+                    const value = submission.data[header];
+                    return `<td>${escapeHtml(value || '')}</td>`;
+                }).join('');
+                const editCell = `
+                    <td class="action-cell">
+                        <button type="button" class="edit edit-submission" data-id="${escapeHtml(submission.id)}">수정</button>
+                    </td>
+                `;
+                const deleteCell = `
+                    <td class="action-cell">
+                        <button type="button" class="delete delete-submission" data-id="${escapeHtml(submission.id)}">삭제</button>
+                    </td>
+                `;
+
+                return `<tr>${dataCells}${editCell}${deleteCell}</tr>`;
+            }).join('');
+
+            submissionsTable.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            ${tableHeaders.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}
+                            <th>수정</th>
+                            <th>삭제</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        async function ensureAdminPassword() {
+            if (adminPassword) {
+                return true;
+            }
+
+            const password = window.prompt('관리자 비밀번호를 입력하세요.');
+
+            if (password === 'topadmin') {
+                adminPassword = password;
+                sessionStorage.setItem('adminPassword', password);
+                return true;
+            }
+
+            if (password !== null) {
+                setMessage('비밀번호가 올바르지 않습니다.', true);
+            }
+
+            return false;
+        }
+
+        async function loadSubmissions() {
+            const hasPassword = await ensureAdminPassword();
+
+            if (!hasPassword) {
+                return;
+            }
+
+            setMessage('제출 현황을 불러오는 중입니다...');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/submissions`, {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+
+                if (!response.ok) {
+                    throw new Error('목록 요청이 실패했습니다.');
+                }
+
+                const submissions = await response.json();
+                renderSubmissions(submissions);
+                setMessage(`총 ${submissions.length}건의 제출 내역을 불러왔습니다.`);
+            } catch (error) {
+                setMessage('제출 현황을 불러오지 못했습니다.', true);
+            }
+        }
+
+        backButton.addEventListener('click', function() {
+            window.location.href = 'index.html';
+        });
+
+        submissionsTable.addEventListener('click', async function(event) {
+            const editButton = event.target.closest('.edit-submission');
+
+            if (editButton) {
+                window.location.href = `edit.html?id=${encodeURIComponent(editButton.dataset.id)}`;
+                return;
+            }
+
+            const deleteButton = event.target.closest('.delete-submission');
+
+            if (!deleteButton) {
+                return;
+            }
+
+            const id = deleteButton.dataset.id;
+
+            if (!window.confirm('이 제출 내역을 삭제하시겠습니까?')) {
+                return;
+            }
+
+            setMessage('제출 내역을 삭제하는 중입니다...');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/submissions/${encodeURIComponent(id)}`, {
+                    method: 'DELETE',
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+
+                if (!response.ok) {
+                    throw new Error('삭제 요청이 실패했습니다.');
+                }
+
+                await loadSubmissions();
+            } catch (error) {
+                setMessage('제출 내역을 삭제하지 못했습니다.', true);
+            }
+        });
+
+        loadSubmissions();
+    </script>
+</body>
+</html>
