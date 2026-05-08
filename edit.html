@@ -7,7 +7,7 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
         h1 { text-align: center; }
-        .toolbar { display: flex; justify-content: flex-end; margin-top: 16px; }
+        .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
         button { padding: 10px 20px; background-color: #555; color: white; border: none; cursor: pointer; }
         button:hover { background-color: #444; }
         .message { min-height: 20px; margin-top: 12px; color: #333; }
@@ -15,10 +15,49 @@
         .table-wrapper { margin-top: 20px; overflow-x: auto; }
         table { width: max-content; min-width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #000; padding: 8px; vertical-align: top; }
-        th { min-width: 90px; background-color: #dbe8f4; text-align: center; font-weight: 700; }
+        th {
+            min-width: 90px;
+            background-color: #dbe8f4;
+            text-align: center;
+            vertical-align: middle;
+            font-weight: 700;
+        }
         td { min-width: 110px; }
+        .narrow-column {
+            width: 50px;
+            min-width: 50px;
+            max-width: 50px;
+            padding-left: 2px;
+            padding-right: 2px;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+        .narrow-column input {
+            padding-left: 2px;
+            padding-right: 2px;
+            text-align: center;
+        }
+        .standard-column {
+            width: 100px;
+            min-width: 100px;
+            max-width: 100px;
+        }
         .group-header { height: 32px; }
-        .filter-header { position: relative; padding-right: 22px; }
+        .filter-header {
+            position: relative;
+            padding-left: 22px;
+            padding-right: 22px;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .filter-header.narrow-column {
+            padding-left: 2px;
+            padding-right: 2px;
+        }
+        .filter-header.narrow-column::before,
+        .filter-header.narrow-column::after {
+            display: none;
+        }
         .filter-header::after {
             content: "";
             position: absolute;
@@ -41,7 +80,7 @@
         }
         .wide { min-width: 280px; }
         .detail { min-width: 460px; }
-        input, textarea { width: 100%; padding: 8px; box-sizing: border-box; font: inherit; }
+        input, textarea, select { width: 100%; padding: 8px; box-sizing: border-box; font: inherit; }
         textarea { min-height: 120px; resize: vertical; }
         input[readonly], textarea[readonly] { background-color: #fafafa; color: #333; }
     </style>
@@ -49,6 +88,7 @@
 <body>
     <h1>TOP 아이디어 제안서 수정</h1>
     <div class="toolbar">
+        <button type="button" id="completeButton">수정 완료</button>
         <button type="button" id="backButton">목록으로</button>
     </div>
     <div id="message" class="message" role="status"></div>
@@ -56,27 +96,26 @@
         <table>
             <thead>
                 <tr>
-                    <th rowspan="2" class="filter-header">NO</th>
-                    <th rowspan="2" class="filter-header">Code</th>
+                    <th rowspan="2" class="filter-header narrow-column">NO</th>
+                    <th rowspan="2" class="filter-header narrow-column">Code</th>
                     <th colspan="6" class="group-header">제안자</th>
-                    <th class="group-header">제안일</th>
-                    <th class="group-header">TOP추진실 담당자</th>
-                    <th class="group-header">담당자</th>
+                    <th rowspan="2" class="filter-header standard-column">제안일</th>
+                    <th class="group-header standard-column">TOP추진실 담당자</th>
+                    <th class="group-header standard-column">담당자</th>
                     <th colspan="5" class="group-header">아이디어 제안 요약</th>
                 </tr>
                 <tr>
-                    <th class="filter-header">본부</th>
-                    <th class="filter-header">사업장</th>
-                    <th class="filter-header">사번</th>
-                    <th class="filter-header">직급</th>
-                    <th class="filter-header">소속</th>
-                    <th class="filter-header">성명</th>
-                    <th class="filter-header">제안일</th>
-                    <th class="filter-header">(참고)<br>검토담당</th>
-                    <th class="filter-header">1차 검토<br>담당자</th>
-                    <th class="filter-header">대분류</th>
-                    <th class="filter-header">중분류</th>
-                    <th class="filter-header">소분류</th>
+                    <th class="filter-header standard-column">본부</th>
+                    <th class="filter-header standard-column">사업장</th>
+                    <th class="filter-header standard-column">사번</th>
+                    <th class="filter-header standard-column">직급</th>
+                    <th class="filter-header standard-column">소속</th>
+                    <th class="filter-header standard-column">성명</th>
+                    <th class="filter-header standard-column">검토담당</th>
+                    <th class="filter-header standard-column">1차 검토<br>담당자</th>
+                    <th class="filter-header standard-column">대분류</th>
+                    <th class="filter-header standard-column">중분류</th>
+                    <th class="filter-header standard-column">소분류</th>
                     <th class="filter-header wide">제안 제목</th>
                     <th class="filter-header detail">제안 내용 상세</th>
                 </tr>
@@ -94,22 +133,66 @@
         const message = document.getElementById('message');
         const valueRow = document.getElementById('valueRow');
         const backButton = document.getElementById('backButton');
+        const completeButton = document.getElementById('completeButton');
+        let currentSubmission = null;
+
+        const categoryOptions = {
+            major: [
+                { label: '구조/토목', code: 'EN/S' },
+                { label: '설계_건축외부', code: 'EN/EX' },
+                { label: '설계_건축내부', code: 'EN/I' },
+                { label: '설계_기계', code: 'EN/M' },
+                { label: '설계_전기', code: 'EN/E' },
+                { label: '외주', code: 'PR/C' },
+                { label: '구매', code: 'PR/P' },
+                { label: '수행-공사성', code: 'CO/D' },
+                { label: '수행-비공사성', code: 'CO/I' },
+                { label: '공통', code: 'CO/Z' },
+                { label: '인프라', code: 'IN/C' },
+                { label: '개발/영업', code: 'D/PM' }
+            ],
+            middle: [
+                { label: '건축_골조', code: 'A/S' },
+                { label: '건축_마감', code: 'A/F' },
+                { label: '토목', code: 'C' },
+                { label: '전기', code: 'E' },
+                { label: '조경', code: 'L' },
+                { label: '기계', code: 'M' },
+                { label: '기타공종', code: 'Z' },
+                { label: '공통가설', code: 'TF' },
+                { label: '현장관리비', code: 'YY' },
+                { label: '보험료', code: 'ID/A' },
+                { label: '안전관리비', code: 'ID/H' },
+                { label: '환경관리비', code: 'ID/P' },
+                { label: '민원처리비', code: 'ID/R' },
+                { label: '기타경비', code: 'ID/Z' },
+                { label: '프로세스 개선', code: 'PI' }
+            ],
+            minor: [
+                { label: '공사비', code: 'CE' },
+                { label: '사업비', code: 'BE' },
+                { label: '하자보수', code: 'CS' },
+                { label: '분양', code: 'SA' },
+                { label: '판관비', code: 'SNA' },
+                { label: '전사경비', code: 'EXP' }
+            ]
+        };
 
         const columns = [
-            { header: 'NO', getValue: (submission) => submission.id, readonly: true },
-            { header: 'Code', getValue: () => '' },
-            { header: '본부', getValue: () => '' },
-            { header: '사업장', getValue: () => '' },
-            { header: '사번', key: '사번' },
-            { header: '직급', key: '직급' },
-            { header: '소속', key: '소속' },
-            { header: '성명', key: '성명' },
-            { header: '제안일', key: '제안일' },
-            { header: '(참고) 검토담당', getValue: () => '' },
-            { header: '1차 검토 담당자', getValue: () => '' },
-            { header: '대분류', key: '제안분야' },
-            { header: '중분류', getValue: () => '' },
-            { header: '소분류', getValue: () => '' },
+            { header: 'NO', getValue: (submission) => submission.id, readonly: true, className: 'narrow-column' },
+            { header: 'Code', key: 'Code', readonly: true, className: 'narrow-column' },
+            { header: '본부', key: '본부', className: 'standard-column' },
+            { header: '사업장', key: '사업장', className: 'standard-column' },
+            { header: '사번', key: '사번', className: 'standard-column' },
+            { header: '직급', key: '직급', className: 'standard-column' },
+            { header: '소속', key: '소속', className: 'standard-column' },
+            { header: '성명', key: '성명', className: 'standard-column' },
+            { header: '제안일', key: '제안일', className: 'standard-column' },
+            { header: '(참고) 검토담당', key: '(참고) 검토담당', className: 'standard-column' },
+            { header: '1차 검토 담당자', key: '1차 검토 담당자', className: 'standard-column' },
+            { header: '대분류', key: '제안분야', className: 'standard-column', options: categoryOptions.major },
+            { header: '중분류', key: '중분류', className: 'standard-column', options: categoryOptions.middle },
+            { header: '소분류', key: '소분류', className: 'standard-column', options: categoryOptions.minor },
             { header: '제안 제목', key: '제안명' },
             { header: '제안 내용 상세', getValue: getProposalDetail, multiline: true }
         ];
@@ -123,17 +206,142 @@
             valueRow.innerHTML = columns.map((column) => {
                 const value = column.getValue ? column.getValue(submission) : submission.data[column.key] || '';
                 const readonly = column.readonly ? ' readonly' : '';
+                const cellClass = column.className ? ` class="${column.className}"` : '';
 
                 if (column.multiline) {
-                    return `<td><textarea name="${column.header}"${readonly}>${escapeHtml(value)}</textarea></td>`;
+                    return `<td${cellClass}><textarea name="${column.header}"${readonly}>${escapeHtml(value)}</textarea></td>`;
                 }
 
-                return `<td><input type="text" name="${column.header}" value="${escapeHtml(value)}"${readonly}></td>`;
+                if (column.options) {
+                    return `<td${cellClass}>${renderSelect(column, value)}</td>`;
+                }
+
+                return `<td${cellClass}><input type="text" name="${column.header}" value="${escapeHtml(value)}"${readonly}></td>`;
             }).join('');
+
+            valueRow.querySelectorAll('[data-code-source="true"]').forEach((select) => {
+                select.addEventListener('change', updateCodeValue);
+            });
+            updateCodeValue();
+        }
+
+        function renderSelect(column, value) {
+            const options = [
+                '<option value="" data-code="">선택</option>',
+                ...column.options.map((option) => {
+                    const selected = value === option.label || value === option.code ? ' selected' : '';
+                    return `<option value="${escapeHtml(option.label)}" data-code="${escapeHtml(option.code)}"${selected}>${escapeHtml(option.label)}</option>`;
+                })
+            ].join('');
+
+            return `<select name="${escapeHtml(column.header)}" data-code-source="true">${options}</select>`;
+        }
+
+        function updateCodeValue() {
+            const codeInput = valueRow.querySelector('input[name="Code"]');
+
+            if (!codeInput) {
+                return;
+            }
+
+            const code = ['대분류', '중분류', '소분류']
+                .map((name) => {
+                    const select = valueRow.querySelector(`select[name="${name}"]`);
+                    return select?.selectedOptions[0]?.dataset.code || '';
+                })
+                .filter(Boolean)
+                .join('-');
+
+            codeInput.value = code;
+        }
+
+        function getCurrentData() {
+            const data = { ...(currentSubmission?.data || {}) };
+            const cells = Array.from(valueRow.cells);
+
+            columns.forEach((column, index) => {
+                if (column.header === 'NO') {
+                    return;
+                }
+
+                const cell = cells[index];
+
+                if (!cell) {
+                    return;
+                }
+
+                const key = column.key || column.header;
+                data[key] = getCellValue(cell);
+            });
+
+            return data;
+        }
+
+        async function completeSubmission() {
+            if (!submissionId) {
+                setMessage('제출 ID가 없습니다.', true);
+                return;
+            }
+
+            let adminPassword = sessionStorage.getItem('adminPassword') || '';
+
+            if (!adminPassword) {
+                adminPassword = window.prompt('관리자 비밀번호를 입력하세요.') || '';
+                sessionStorage.setItem('adminPassword', adminPassword);
+            }
+
+            updateCodeValue();
+            completeButton.disabled = true;
+            setMessage('수정 완료 상태를 저장하는 중입니다...');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/submissions/${encodeURIComponent(submissionId)}/complete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Password': adminPassword
+                    },
+                    body: JSON.stringify({ data: getCurrentData() })
+                });
+
+                if (!response.ok) {
+                    throw new Error('수정 완료 저장 요청이 실패했습니다.');
+                }
+
+                currentSubmission = await response.json();
+                setMessage('수정 완료로 저장했습니다. 목록에서 상태를 확인할 수 있습니다.');
+            } catch (error) {
+                setMessage('수정 완료 상태를 저장하지 못했습니다.', true);
+            } finally {
+                completeButton.disabled = false;
+            }
+        }
+
+        function getPlainText(element) {
+            return element.innerText.replace(/\s+/g, ' ').trim();
+        }
+
+        function getCellValue(cell) {
+            const control = cell.querySelector('input, textarea, select');
+
+            if (!control) {
+                return getPlainText(cell);
+            }
+
+            if (control.tagName === 'SELECT') {
+                return control.selectedOptions[0]?.textContent || '';
+            }
+
+            return control.value || '';
         }
 
         function getProposalDetail(submission) {
             const data = submission.data || {};
+
+            if (data['제안 내용 상세']) {
+                return data['제안 내용 상세'];
+            }
+
             const detailFields = [
                 '현상 및 문제점',
                 '제안안 설명',
@@ -187,6 +395,7 @@
                 }
 
                 const submission = await response.json();
+                currentSubmission = submission;
                 renderValues(submission);
                 setMessage('제출 내용을 불러왔습니다.');
             } catch (error) {
@@ -197,6 +406,8 @@
         backButton.addEventListener('click', function() {
             window.location.href = 'admin.html';
         });
+
+        completeButton.addEventListener('click', completeSubmission);
 
         loadSubmission();
     </script>

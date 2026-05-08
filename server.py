@@ -48,6 +48,10 @@ class ProposalHandler(SimpleHTTPRequestHandler):
             self.handle_create_submission()
             return
 
+        if path.startswith("/api/submissions/") and path.endswith("/complete"):
+            self.handle_complete_submission(path)
+            return
+
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def do_DELETE(self) -> None:
@@ -141,6 +145,41 @@ class ProposalHandler(SimpleHTTPRequestHandler):
 
         self.save_submissions(remaining)
         self.send_json({"deleted": submission_id}, HTTPStatus.OK)
+
+    def handle_complete_submission(self, path: str) -> None:
+        if self.headers.get("X-Admin-Password") != ADMIN_PASSWORD:
+            self.send_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
+
+        parts = path.strip("/").split("/")
+
+        try:
+            submission_id = int(parts[2])
+        except (IndexError, ValueError):
+            self.send_json({"error": "invalid id"}, HTTPStatus.BAD_REQUEST)
+            return
+
+        payload = self.read_json_body()
+        submissions = self.load_submissions()
+        submission = next((item for item in submissions if item.get("id") == submission_id), None)
+
+        if submission is None:
+            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+            return
+
+        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+            current_data = submission.get("data")
+            if not isinstance(current_data, dict):
+                current_data = {}
+
+            current_data.update(payload["data"])
+            submission["data"] = current_data
+
+        now = datetime.now(timezone.utc).astimezone()
+        submission["edit_completed"] = True
+        submission["edit_completed_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+        self.save_submissions(submissions)
+        self.send_json(submission, HTTPStatus.OK)
 
     def read_json_body(self) -> object:
         content_length = int(self.headers.get("Content-Length", "0"))

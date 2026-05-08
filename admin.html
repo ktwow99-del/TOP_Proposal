@@ -19,12 +19,15 @@
         table { width: 100%; border-collapse: collapse; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
         th { background-color: #f2f2f2; min-width: 120px; text-align: center; }
+        .no-cell { width: 60px; min-width: 60px; text-align: center; }
         .action-cell { min-width: 70px; text-align: center; white-space: nowrap; }
+        .status-cell { min-width: 90px; text-align: center; white-space: nowrap; }
     </style>
 </head>
 <body>
     <h1>TOP 아이디어 제출 현황</h1>
     <div class="toolbar">
+        <button type="button" id="excelButton" class="secondary">엑셀 다운로드</button>
         <button type="button" id="backButton" class="secondary">제안서 작성</button>
     </div>
     <div id="message" class="message" role="status"></div>
@@ -32,10 +35,12 @@
 
     <script>
         const API_BASE = window.location.port === '8000' ? '' : 'http://localhost:8000';
+        const excelButton = document.getElementById('excelButton');
         const backButton = document.getElementById('backButton');
         const message = document.getElementById('message');
         const submissionsTable = document.getElementById('submissionsTable');
         let adminPassword = sessionStorage.getItem('adminPassword') || '';
+        let loadedSubmissions = [];
 
         function setMessage(text, isError = false) {
             message.textContent = text;
@@ -53,15 +58,24 @@
 
         function renderSubmissions(submissions) {
             if (!submissions.length) {
+                loadedSubmissions = [];
                 submissionsTable.innerHTML = '<p>저장된 제출 내역이 없습니다.</p>';
                 return;
             }
 
-            const tableHeaders = ['제안일', '사번', '성명', '제안명'];
-            const rows = submissions.map((submission) => {
-                const dataCells = tableHeaders.map((header) => {
-                    const value = submission.data[header];
-                    return `<td>${escapeHtml(value || '')}</td>`;
+            const tableColumns = [
+                { header: 'NO', getValue: (submission) => submission.id, className: 'no-cell' },
+                { header: '제안일', getValue: (submission) => submission.data['제안일'] },
+                { header: '사번', getValue: (submission) => submission.data['사번'] },
+                { header: '성명', getValue: (submission) => submission.data['성명'] },
+                { header: '제안명', getValue: (submission) => submission.data['제안명'] }
+            ];
+            loadedSubmissions = [...submissions].sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+            const rows = loadedSubmissions.map((submission) => {
+                const dataCells = tableColumns.map((column) => {
+                    const value = column.getValue(submission);
+                    const cellClass = column.className ? ` class="${column.className}"` : '';
+                    return `<td${cellClass}>${escapeHtml(value || '')}</td>`;
                 }).join('');
                 const editCell = `
                     <td class="action-cell">
@@ -73,22 +87,164 @@
                         <button type="button" class="delete delete-submission" data-id="${escapeHtml(submission.id)}">삭제</button>
                     </td>
                 `;
+                const statusCell = `<td class="status-cell">${escapeHtml(getCompletionText(submission))}</td>`;
 
-                return `<tr>${dataCells}${editCell}${deleteCell}</tr>`;
+                return `<tr>${dataCells}${editCell}${deleteCell}${statusCell}</tr>`;
             }).join('');
 
             submissionsTable.innerHTML = `
                 <table>
                     <thead>
                         <tr>
-                            ${tableHeaders.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}
+                            ${tableColumns.map((column) => {
+                                const cellClass = column.className ? ` class="${column.className}"` : '';
+                                return `<th${cellClass}>${escapeHtml(column.header)}</th>`;
+                            }).join('')}
                             <th>수정</th>
                             <th>삭제</th>
+                            <th class="status-cell">수정상태</th>
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
                 </table>
             `;
+        }
+
+        function getCompletionText(submission) {
+            return submission.edit_completed ? '수정완료' : '';
+        }
+
+        function downloadExcel() {
+            if (!loadedSubmissions.length) {
+                setMessage('다운로드할 제출 내역이 없습니다.', true);
+                return;
+            }
+
+            const excelColumns = [
+                { header: 'NO', getValue: (submission) => submission.id },
+                { header: 'Code', getValue: (submission) => submission.data['Code'] },
+                { header: '본부', getValue: (submission) => submission.data['본부'] },
+                { header: '사업장', getValue: (submission) => submission.data['사업장'] },
+                { header: '사번', getValue: (submission) => submission.data['사번'] },
+                { header: '직급', getValue: (submission) => submission.data['직급'] },
+                { header: '소속', getValue: (submission) => submission.data['소속'] },
+                { header: '성명', getValue: (submission) => submission.data['성명'] },
+                { header: '제안일', getValue: (submission) => submission.data['제안일'] },
+                { header: '검토담당', getValue: (submission) => submission.data['(참고) 검토담당'] },
+                { header: '1차 검토 담당자', getValue: (submission) => submission.data['1차 검토 담당자'] },
+                { header: '대분류', getValue: (submission) => submission.data['제안분야'] },
+                { header: '중분류', getValue: (submission) => submission.data['중분류'] },
+                { header: '소분류', getValue: (submission) => submission.data['소분류'] },
+                { header: '제안 제목', getValue: (submission) => submission.data['제안명'] },
+                { header: '제안 내용 상세', getValue: (submission) => getProposalDetail(submission) },
+                { header: '수정상태', getValue: getCompletionText }
+            ];
+            const headerCells = excelColumns
+                .map((column) => `<Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXml(column.header)}</Data></Cell>`)
+                .join('');
+            const bodyRows = loadedSubmissions
+                .map((submission) => {
+                    const cells = excelColumns
+                        .map((column) => {
+                            const value = normalizeExcelText(column.getValue(submission));
+                            return `<Cell ss:StyleID="Cell"><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
+                        })
+                        .join('');
+
+                    return `<Row>${cells}</Row>`;
+                })
+                .join('');
+
+            const excelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+    xmlns:o="urn:schemas-microsoft-com:office:office"
+    xmlns:x="urn:schemas-microsoft-com:office:excel"
+    xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+    <Styles>
+        <Style ss:ID="Header">
+            <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="0"/>
+            <Font ss:Bold="1"/>
+            <Interior ss:Color="#F2F2F2" ss:Pattern="Solid"/>
+            <Borders>
+                <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+                <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+                <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+                <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+            </Borders>
+        </Style>
+        <Style ss:ID="Cell">
+            <Alignment ss:Vertical="Top" ss:WrapText="0"/>
+            <NumberFormat ss:Format="@"/>
+            <Borders>
+                <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+                <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+                <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+                <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+            </Borders>
+        </Style>
+    </Styles>
+    <Worksheet ss:Name="제출현황">
+        <Table>
+            <Row>${headerCells}</Row>
+            ${bodyRows}
+        </Table>
+    </Worksheet>
+</Workbook>`;
+
+            const blob = new Blob(['\ufeff', excelXml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'TOP_아이디어_제출현황.xls';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+            setMessage('엑셀 파일을 다운로드했습니다.');
+        }
+
+        function getProposalDetail(submission) {
+            const data = submission.data || {};
+
+            if (data['제안 내용 상세']) {
+                return data['제안 내용 상세'];
+            }
+
+            const detailFields = [
+                '현상 및 문제점',
+                '제안안 설명',
+                '유형효과',
+                '무형효과',
+                '제약조건',
+                '투자비',
+                '과제 수행 계획'
+            ];
+
+            return detailFields
+                .map((field) => {
+                    const value = data[field] || '';
+                    return value ? `[${field}] ${value}` : '';
+                })
+                .filter(Boolean)
+                .join(' ');
+        }
+
+        function normalizeExcelText(value) {
+            return String(value ?? '')
+                .replace(/[\r\n\u2028\u2029]+/g, ' ')
+                .replace(/\t+/g, ' ')
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+        }
+
+        function escapeXml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
         }
 
         async function ensureAdminPassword() {
@@ -140,6 +296,8 @@
         backButton.addEventListener('click', function() {
             window.location.href = 'index.html';
         });
+
+        excelButton.addEventListener('click', downloadExcel);
 
         submissionsTable.addEventListener('click', async function(event) {
             const editButton = event.target.closest('.edit-submission');
