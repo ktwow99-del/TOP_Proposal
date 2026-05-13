@@ -109,7 +109,7 @@
         const form = document.getElementById('proposalForm');
         const adminButton = document.getElementById('adminButton');
         const message = document.getElementById('message');
-        const API_BASE = window.location.port === '8000' ? '' : 'http://localhost:8000';
+        const API_BASE = '';
 
         const headers = [
             '사번', '성명', '소속', '직급', '제안명', '제안일', '제안분야',
@@ -146,15 +146,60 @@
             }, {});
         }
 
+        /** admin PDF용: 현재 표 레이아웃·입력값 그대로 HTML 문자열로 저장 */
+        function captureIndexFormSnapshot() {
+            const table = form.querySelector('table');
+            const clone = table.cloneNode(true);
+
+            clone.style.cssText =
+                'width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;font-family:Malgun Gothic,Arial,sans-serif;';
+            clone.querySelectorAll('th').forEach((th) => {
+                th.style.cssText =
+                    'border:1px solid #ddd;padding:8px;background:#f2f2f2;text-align:center;vertical-align:middle;font-weight:bold;';
+            });
+            clone.querySelectorAll('td').forEach((td) => {
+                td.style.cssText = 'border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top;word-break:break-word;';
+            });
+
+            clone.querySelectorAll('input, textarea, select').forEach((field) => {
+                let displayText = '';
+                if (field.tagName === 'SELECT') {
+                    const opt = field.options[field.selectedIndex];
+                    displayText = opt ? opt.text : field.value;
+                } else {
+                    displayText = field.value;
+                }
+                const block = document.createElement('div');
+                block.style.cssText =
+                    'white-space:pre-wrap;word-break:break-word;width:100%;box-sizing:border-box;min-height:1.2em;';
+                block.textContent = displayText;
+                field.replaceWith(block);
+            });
+
+            const wrap = document.createElement('div');
+            wrap.className = 'pdf-index-snapshot-root';
+            wrap.style.cssText =
+                'background:#fff;color:#000;box-sizing:border-box;width:794px;min-width:794px;max-width:794px;padding:20px;line-height:1.45;';
+            const title = document.createElement('h2');
+            title.textContent = 'TOP 아이디어 제안서';
+            title.style.cssText = 'text-align:center;margin:0 0 16px;font-size:18px;font-weight:bold;';
+            wrap.appendChild(title);
+            wrap.appendChild(clone);
+            return wrap.outerHTML;
+        }
+
         form.addEventListener('submit', async function(event) {
             event.preventDefault();
             setMessage('제출 내용을 저장하는 중입니다...');
 
             try {
+                const row = getFormRow();
+                row.__index_snapshot_html = captureIndexFormSnapshot();
+
                 const response = await fetch(`${API_BASE}/api/submissions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ data: getFormRow() })
+                    body: JSON.stringify({ data: row })
                 });
 
                 if (!response.ok) {
@@ -166,7 +211,7 @@
                 form.reset();
                 setMessage('제출 내용이 로컬 서버에 저장되었습니다.');
             } catch (error) {
-                setMessage(`${error.message} 로컬 서버 주소는 http://localhost:8000 입니다.`, true);
+                setMessage(`${error.message} 서버 주소를 http://서버PC_IP:8000 형태로 열었는지 확인해주세요.`, true);
             }
         });
 

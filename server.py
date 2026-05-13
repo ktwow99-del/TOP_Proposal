@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import threading
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -12,9 +14,15 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 SUBMISSIONS_FILE = DATA_DIR / "submissions.json"
 ADMIN_PASSWORD = "topadmin"
+HOST = "0.0.0.0"
+PORT = 8000
+SUBMISSIONS_LOCK = threading.Lock()
 
 
 class ProposalHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -81,16 +89,22 @@ class ProposalHandler(SimpleHTTPRequestHandler):
             )
             return
 
-        submissions = self.load_submissions()
-        now = datetime.now(timezone.utc).astimezone()
-        next_id = max((int(item.get("id", 0)) for item in submissions), default=0) + 1
-        submission = {
-            "id": next_id,
-            "submitted_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "data": row,
-        }
-        submissions.append(submission)
-        self.save_submissions(submissions)
+        try:
+            with SUBMISSIONS_LOCK:
+                submissions = self.load_submissions()
+                now = datetime.now(timezone.utc).astimezone()
+                next_id = max((int(item.get("id", 0)) for item in submissions), default=0) + 1
+                submission = {
+                    "id": next_id,
+                    "submitted_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+                    "data": row,
+                }
+                submissions.append(submission)
+                self.save_submissions(submissions)
+        except OSError:
+            self.send_json({"error": "save failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
         self.send_json(submission, HTTPStatus.CREATED)
 
     def handle_get_submissions(self) -> None:
@@ -136,14 +150,20 @@ class ProposalHandler(SimpleHTTPRequestHandler):
             self.send_json({"error": "invalid id"}, HTTPStatus.BAD_REQUEST)
             return
 
-        submissions = self.load_submissions()
-        remaining = [item for item in submissions if item.get("id") != submission_id]
+        try:
+            with SUBMISSIONS_LOCK:
+                submissions = self.load_submissions()
+                remaining = [item for item in submissions if item.get("id") != submission_id]
 
-        if len(remaining) == len(submissions):
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                if len(remaining) == len(submissions):
+                    self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                    return
+
+                self.save_submissions(remaining)
+        except OSError:
+            self.send_json({"error": "save failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        self.save_submissions(remaining)
         self.send_json({"deleted": submission_id}, HTTPStatus.OK)
 
     def handle_complete_submission(self, path: str) -> None:
@@ -160,25 +180,32 @@ class ProposalHandler(SimpleHTTPRequestHandler):
             return
 
         payload = self.read_json_body()
-        submissions = self.load_submissions()
-        submission = next((item for item in submissions if item.get("id") == submission_id), None)
 
-        if submission is None:
-            self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+        try:
+            with SUBMISSIONS_LOCK:
+                submissions = self.load_submissions()
+                submission = next((item for item in submissions if item.get("id") == submission_id), None)
+
+                if submission is None:
+                    self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+                    return
+
+                if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+                    current_data = submission.get("data")
+                    if not isinstance(current_data, dict):
+                        current_data = {}
+
+                    current_data.update(payload["data"])
+                    submission["data"] = current_data
+
+                now = datetime.now(timezone.utc).astimezone()
+                submission["edit_completed"] = True
+                submission["edit_completed_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+                self.save_submissions(submissions)
+        except OSError:
+            self.send_json({"error": "save failed"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
-        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
-            current_data = submission.get("data")
-            if not isinstance(current_data, dict):
-                current_data = {}
-
-            current_data.update(payload["data"])
-            submission["data"] = current_data
-
-        now = datetime.now(timezone.utc).astimezone()
-        submission["edit_completed"] = True
-        submission["edit_completed_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
-        self.save_submissions(submissions)
         self.send_json(submission, HTTPStatus.OK)
 
     def read_json_body(self) -> object:
@@ -220,11 +247,34 @@ class ProposalHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def get_lan_ips() -> list[str]:
+    ips: set[str] = set()
+
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+    except socket.gaierror:
+        pass
+
+    return sorted(ips)
+
+
 def main() -> None:
-    server_address = ("localhost", 8000)
+    server_address = (HOST, PORT)
     httpd = ThreadingHTTPServer(server_address, ProposalHandler)
     print("TOP 아이디어 제안서 서버가 실행 중입니다.")
-    print("브라우저에서 http://localhost:8000 을 열어주세요.")
+    print(f"이 PC에서 접속: http://localhost:{PORT}")
+
+    lan_ips = get_lan_ips()
+    if lan_ips:
+        print("사내망에서 접속:")
+        for ip in lan_ips:
+            print(f"  http://{ip}:{PORT}")
+    else:
+        print("사내망 주소 확인: ipconfig 명령에서 IPv4 주소를 확인한 뒤 http://IPv4주소:8000 으로 접속하세요.")
+
     httpd.serve_forever()
 
 

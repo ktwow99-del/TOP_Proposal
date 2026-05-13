@@ -12,6 +12,7 @@
         button.secondary { background-color: #555; }
         button.edit { background-color: #f59e0b; padding: 6px 12px; }
         button.delete { background-color: #c62828; padding: 6px 12px; }
+        button.download-pdf { background-color: #2563eb; padding: 6px 12px; }
         .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
         .message { min-height: 20px; margin-top: 12px; color: #333; }
         .message.error { color: #b00020; }
@@ -33,8 +34,10 @@
     <div id="message" class="message" role="status"></div>
     <div id="submissionsTable" class="table-wrapper"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script>
-        const API_BASE = window.location.port === '8000' ? '' : 'http://localhost:8000';
+        const API_BASE = '';
         const excelButton = document.getElementById('excelButton');
         const backButton = document.getElementById('backButton');
         const message = document.getElementById('message');
@@ -54,6 +57,221 @@
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
+        }
+
+        function nl2brEscaped(value) {
+            return escapeHtml(value ?? '').replace(/\n/g, '<br>');
+        }
+
+        function sanitizeFilePart(value, fallback) {
+            let s = String(value ?? '')
+                .replace(/[\r\n\u2028\u2029]+/g, ' ')
+                .replace(/[\\/:*?"<>|]+/g, '_')
+                .trim();
+
+            if (s.length > 120) {
+                s = s.slice(0, 120);
+            }
+
+            return s || fallback;
+        }
+
+        /** 저장된 index 표 스냅샷이 있으면 사용, 없으면 필드로 표 재구성 */
+        function buildPdfElementFromSubmission(submission) {
+            const d = submission.data || {};
+            const snap = d['__index_snapshot_html'];
+
+            if (typeof snap === 'string' && snap.trim()) {
+                const holder = document.createElement('div');
+                holder.innerHTML = snap.trim();
+                const root = holder.firstElementChild;
+
+                if (root) {
+                    root.style.setProperty('background', '#fff');
+                    root.style.setProperty('color', '#000');
+                    root.style.setProperty('box-sizing', 'border-box');
+                    root.style.setProperty('width', '210mm');
+                    root.style.setProperty('max-width', '210mm');
+                    return root;
+                }
+            }
+
+            return buildProposalPdfDom(submission);
+        }
+
+        /** index.html 제안서 표와 동일한 항목·배치 (스냅샷 없는 구 제출분용) */
+        function buildProposalPdfDom(submission) {
+            const d = submission.data || {};
+            const wrap = document.createElement('div');
+            const th = 'border:1px solid #ddd;padding:8px;background:#f2f2f2;text-align:center;vertical-align:middle;font-weight:bold;width:14%;';
+            const td = 'border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top;word-break:break-word;';
+            const L = (v) => nl2brEscaped(v);
+            const S = (v) => escapeHtml(v ?? '');
+
+            wrap.style.cssText =
+                'font-family:Malgun Gothic,Arial,sans-serif;padding:20px;background:#fff;color:#000;' +
+                'box-sizing:border-box;width:210mm;max-width:210mm;font-size:11px;line-height:1.45;';
+
+            wrap.innerHTML = `
+                <h2 style="text-align:center;margin:0 0 16px;font-size:18px;">TOP 아이디어 제안서</h2>
+                <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+                    <tr>
+                        <th style="${th}">사번</th>
+                        <td style="${td}">${S(d['사번'])}</td>
+                        <th style="${th}">성명</th>
+                        <td style="${td}">${S(d['성명'])}</td>
+                        <th style="${th}">소속/직급</th>
+                        <td style="${td}">${S(d['소속'])} / ${S(d['직급'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">제안명</th>
+                        <td colspan="3" style="${td}">${S(d['제안명'])}</td>
+                        <th style="${th}">제안일</th>
+                        <td style="${td}">${S(d['제안일'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">제안분야</th>
+                        <td colspan="5" style="${td}">${S(d['제안분야'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">현상 및 문제점</th>
+                        <td colspan="5" style="${td}">${L(d['현상 및 문제점'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">제안안 설명<br>(개선 전/후)</th>
+                        <td colspan="5" style="${td}">${L(d['제안안 설명'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">유형효과</th>
+                        <td colspan="5" style="${td}">${L(d['유형효과'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">무형효과</th>
+                        <td colspan="5" style="${td}">${L(d['무형효과'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">제약조건</th>
+                        <td colspan="5" style="${td}">${L(d['제약조건'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">투자비</th>
+                        <td colspan="5" style="${td}">${L(d['투자비'])}</td>
+                    </tr>
+                    <tr>
+                        <th style="${th}">과제 수행 계획</th>
+                        <td colspan="5" style="${td}">${L(d['과제 수행 계획'])}</td>
+                    </tr>
+                </table>
+            `;
+
+            return wrap;
+        }
+
+        function getJsPdfConstructor() {
+            if (window.jspdf && typeof window.jspdf.jsPDF === 'function') {
+                return window.jspdf.jsPDF;
+            }
+
+            if (window.jspdf && typeof window.jspdf.default === 'function') {
+                return window.jspdf.default;
+            }
+
+            return null;
+        }
+
+        /** 캔버스(긴 이미지)를 A4 여러 페이지에 나눠 붙임 */
+        function addImageCanvasToPdf(pdf, canvas, marginMm) {
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const imgData = canvas.toDataURL('image/png');
+            const imgWidthMm = pageWidth - marginMm * 2;
+            const imgHeightMm = (canvas.height * imgWidthMm) / canvas.width;
+            const pageInnerHeight = pageHeight - marginMm * 2;
+
+            let heightLeft = imgHeightMm;
+            let y = marginMm;
+
+            pdf.addImage(imgData, 'PNG', marginMm, y, imgWidthMm, imgHeightMm);
+            heightLeft -= pageInnerHeight;
+
+            while (heightLeft > 0) {
+                y = marginMm - (imgHeightMm - heightLeft);
+                pdf.addPage();
+                pdf.addImage(imgData, 'PNG', marginMm, y, imgWidthMm, imgHeightMm);
+                heightLeft -= pageInnerHeight;
+            }
+        }
+
+        async function downloadOriginalPdf(submission) {
+            if (typeof html2canvas !== 'function') {
+                setMessage('html2canvas를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.', true);
+                return;
+            }
+
+            const JsPDF = getJsPdfConstructor();
+
+            if (!JsPDF) {
+                setMessage('jsPDF를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.', true);
+                return;
+            }
+
+            const d = submission.data || {};
+            const el = buildPdfElementFromSubmission(submission);
+            /* flex 안에서 너비 0으로 수축하면 html2canvas가 빈 이미지를 만듦 → 고정 폭 블록 */
+            el.style.display = 'block';
+            el.style.width = '794px';
+            el.style.minWidth = '794px';
+            el.style.maxWidth = '794px';
+            el.style.margin = '0 auto';
+            el.style.boxSizing = 'border-box';
+            el.style.boxShadow = '0 4px 24px rgba(0, 0, 0, 0.12)';
+
+            const veil = document.createElement('div');
+            veil.style.cssText =
+                'position:fixed;inset:0;background:rgba(255,255,255,0.94);z-index:2147483646;' +
+                'overflow:auto;padding:24px;box-sizing:border-box;';
+            veil.appendChild(el);
+
+            const notice = document.createElement('div');
+            notice.textContent = 'PDF를 생성하는 중입니다…';
+            notice.style.cssText =
+                'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;' +
+                'font:14px Malgun Gothic,sans-serif;background:#1e293b;color:#fff;padding:10px 18px;border-radius:8px;';
+
+            document.body.appendChild(veil);
+            document.body.appendChild(notice);
+
+            const dateRaw = d['제안일'] || (submission.submitted_at || '').split(/\s+/)[0] || '';
+            const datePart = sanitizeFilePart(dateRaw, '날짜미상');
+            const titlePart = sanitizeFilePart(d['제안명'], '제안명');
+            const filename = `${datePart}_${titlePart}.pdf`;
+
+            try {
+                await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                await new Promise((resolve) => setTimeout(resolve, 200));
+
+                const canvas = await html2canvas(el, {
+                    scale: 2,
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: '#ffffff'
+                });
+
+                if (!canvas.width || !canvas.height) {
+                    throw new Error('empty canvas');
+                }
+
+                const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+                addImageCanvasToPdf(pdf, canvas, 10);
+                pdf.save(filename);
+                setMessage('PDF를 다운로드했습니다.');
+            } catch (error) {
+                console.error(error);
+                setMessage('PDF 생성에 실패했습니다.', true);
+            } finally {
+                notice.remove();
+                veil.remove();
+            }
         }
 
         function renderSubmissions(submissions) {
@@ -77,6 +295,11 @@
                     const cellClass = column.className ? ` class="${column.className}"` : '';
                     return `<td${cellClass}>${escapeHtml(value || '')}</td>`;
                 }).join('');
+                const downloadCell = `
+                    <td class="action-cell">
+                        <button type="button" class="download-pdf download-pdf-submission" data-id="${escapeHtml(submission.id)}">다운로드</button>
+                    </td>
+                `;
                 const editCell = `
                     <td class="action-cell">
                         <button type="button" class="edit edit-submission" data-id="${escapeHtml(submission.id)}">수정</button>
@@ -89,7 +312,7 @@
                 `;
                 const statusCell = `<td class="status-cell">${escapeHtml(getCompletionText(submission))}</td>`;
 
-                return `<tr>${dataCells}${editCell}${deleteCell}${statusCell}</tr>`;
+                return `<tr>${dataCells}${downloadCell}${editCell}${deleteCell}${statusCell}</tr>`;
             }).join('');
 
             submissionsTable.innerHTML = `
@@ -100,6 +323,7 @@
                                 const cellClass = column.className ? ` class="${column.className}"` : '';
                                 return `<th${cellClass}>${escapeHtml(column.header)}</th>`;
                             }).join('')}
+                            <th>원본 다운로드</th>
                             <th>수정</th>
                             <th>삭제</th>
                             <th class="status-cell">수정상태</th>
@@ -300,6 +524,20 @@
         excelButton.addEventListener('click', downloadExcel);
 
         submissionsTable.addEventListener('click', async function(event) {
+            const downloadButton = event.target.closest('.download-pdf-submission');
+
+            if (downloadButton) {
+                const id = downloadButton.dataset.id;
+                const submission = loadedSubmissions.find((item) => String(item.id) === String(id));
+
+                if (submission) {
+                    setMessage('PDF를 생성하는 중입니다...');
+                    await downloadOriginalPdf(submission);
+                }
+
+                return;
+            }
+
             const editButton = event.target.closest('.edit-submission');
 
             if (editButton) {
