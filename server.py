@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-import cgi
 import json
 import re
 import socket
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+
+
+@dataclass
+class UploadedFile:
+    filename: str
+    content: bytes
 
 
 ROOT = Path(__file__).resolve().parent
@@ -235,25 +241,19 @@ class ProposalHandler(SimpleHTTPRequestHandler):
         except json.JSONDecodeError:
             return None
 
-    def read_multipart_body(self) -> tuple[object, cgi.FieldStorage | None]:
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={
-                "REQUEST_METHOD": "POST",
-                "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-                "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
-            },
-        )
+    def read_multipart_body(self) -> tuple[object, UploadedFile | None]:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        raw_body = self.rfile.read(content_length)
+        fields = parse_multipart_form_data(self.headers.get("Content-Type", ""), raw_body)
 
-        data_field = form.getfirst("data")
-        attachment = form["attachment"] if "attachment" in form else None
+        data_field = fields.get("data")
+        attachment = fields.get("attachment")
 
-        if attachment is not None and not getattr(attachment, "filename", None):
+        if not isinstance(attachment, UploadedFile) or not attachment.filename:
             attachment = None
 
         try:
-            payload = json.loads(data_field) if data_field else None
+            payload = json.loads(data_field) if isinstance(data_field, str) and data_field else None
         except json.JSONDecodeError:
             payload = None
 
@@ -265,7 +265,7 @@ class ProposalHandler(SimpleHTTPRequestHandler):
         cleaned = cleaned.strip("._")
         return cleaned[:max_len] if cleaned else "unknown"
 
-    def save_attachment(self, attachment: cgi.FieldStorage, receipt_date: str, task_name: str) -> str:
+    def save_attachment(self, attachment: UploadedFile, receipt_date: str, task_name: str) -> str:
         original_name = Path(attachment.filename or "attachment").name
         date_part = self.sanitize_filename_part(receipt_date, 20)
         task_part = self.sanitize_filename_part(task_name)
@@ -283,7 +283,7 @@ class ProposalHandler(SimpleHTTPRequestHandler):
             counter += 1
 
         with target.open("wb") as file:
-            file.write(attachment.file.read())
+            file.write(attachment.content)
 
         return target.name
 
@@ -315,6 +315,62 @@ class ProposalHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+def get_multipart_boundary(content_type: str) -> str | None:
+    for part in content_type.split(";"):
+        part = part.strip()
+        if part.startswith("boundary="):
+            boundary = part[len("boundary=") :].strip()
+            if boundary.startswith('"') and boundary.endswith('"'):
+                boundary = boundary[1:-1]
+            return boundary
+    return None
+
+
+def parse_multipart_form_data(content_type: str, body: bytes) -> dict[str, str | UploadedFile]:
+    boundary = get_multipart_boundary(content_type)
+    if not boundary:
+        return {}
+
+    delimiter = f"--{boundary}".encode()
+    fields: dict[str, str | UploadedFile] = {}
+
+    for part in body.split(delimiter):
+        part = part.strip(b"\r\n")
+        if not part or part == b"--":
+            continue
+
+        header_body_split = part.split(b"\r\n\r\n", 1)
+        if len(header_body_split) != 2:
+            continue
+
+        headers_raw, content = header_body_split
+        if content.endswith(b"\r\n"):
+            content = content[:-2]
+
+        name = None
+        filename = None
+        for line in headers_raw.decode("utf-8", errors="replace").split("\r\n"):
+            if not line.lower().startswith("content-disposition:"):
+                continue
+
+            name_match = re.search(r'name="([^"]*)"', line, re.IGNORECASE)
+            filename_match = re.search(r'filename="([^"]*)"', line, re.IGNORECASE)
+            if name_match:
+                name = name_match.group(1)
+            if filename_match:
+                filename = filename_match.group(1)
+
+        if not name:
+            continue
+
+        if filename:
+            fields[name] = UploadedFile(filename=filename, content=content)
+        else:
+            fields[name] = content.decode("utf-8")
+
+    return fields
 
 
 def get_lan_ips() -> list[str]:
