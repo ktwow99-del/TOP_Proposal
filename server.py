@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import cgi
 import json
+import re
 import socket
 import threading
 from datetime import datetime, timezone
@@ -72,7 +74,13 @@ class ProposalHandler(SimpleHTTPRequestHandler):
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
 
     def handle_create_submission(self) -> None:
-        payload = self.read_json_body()
+        content_type = self.headers.get("Content-Type", "")
+        attachment = None
+
+        if content_type.startswith("multipart/form-data"):
+            payload, attachment = self.read_multipart_body()
+        else:
+            payload = self.read_json_body()
 
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
             self.send_json({"error": "invalid payload"}, HTTPStatus.BAD_REQUEST)
@@ -99,6 +107,16 @@ class ProposalHandler(SimpleHTTPRequestHandler):
                     "submitted_at": now.strftime("%Y-%m-%d %H:%M:%S"),
                     "data": row,
                 }
+
+                if attachment is not None and attachment.filename:
+                    saved_name = self.save_attachment(
+                        attachment,
+                        now.strftime("%Y-%m-%d"),
+                        str(row.get("제안명", "")),
+                    )
+                    row["첨부파일"] = saved_name
+                    submission["data"] = row
+
                 submissions.append(submission)
                 self.save_submissions(submissions)
         except OSError:
@@ -216,6 +234,58 @@ class ProposalHandler(SimpleHTTPRequestHandler):
             return json.loads(raw_body.decode("utf-8"))
         except json.JSONDecodeError:
             return None
+
+    def read_multipart_body(self) -> tuple[object, cgi.FieldStorage | None]:
+        form = cgi.FieldStorage(
+            fp=self.rfile,
+            headers=self.headers,
+            environ={
+                "REQUEST_METHOD": "POST",
+                "CONTENT_TYPE": self.headers.get("Content-Type", ""),
+                "CONTENT_LENGTH": self.headers.get("Content-Length", "0"),
+            },
+        )
+
+        data_field = form.getfirst("data")
+        attachment = form["attachment"] if "attachment" in form else None
+
+        if attachment is not None and not getattr(attachment, "filename", None):
+            attachment = None
+
+        try:
+            payload = json.loads(data_field) if data_field else None
+        except json.JSONDecodeError:
+            payload = None
+
+        return payload, attachment
+
+    @staticmethod
+    def sanitize_filename_part(text: str, max_len: int = 80) -> str:
+        cleaned = re.sub(r'[<>:"/\\|?*\r\n\t]+', "_", str(text).strip())
+        cleaned = cleaned.strip("._")
+        return cleaned[:max_len] if cleaned else "unknown"
+
+    def save_attachment(self, attachment: cgi.FieldStorage, receipt_date: str, task_name: str) -> str:
+        original_name = Path(attachment.filename or "attachment").name
+        date_part = self.sanitize_filename_part(receipt_date, 20)
+        task_part = self.sanitize_filename_part(task_name)
+        file_part = self.sanitize_filename_part(original_name)
+        saved_name = f"{date_part}_{task_part}_{file_part}"
+
+        DATA_DIR.mkdir(exist_ok=True)
+        target = DATA_DIR / saved_name
+        counter = 1
+
+        while target.exists():
+            stem = Path(saved_name).stem
+            suffix = Path(saved_name).suffix
+            target = DATA_DIR / f"{stem}_{counter}{suffix}"
+            counter += 1
+
+        with target.open("wb") as file:
+            file.write(attachment.file.read())
+
+        return target.name
 
     def load_submissions(self) -> list[dict]:
         if not SUBMISSIONS_FILE.exists():
