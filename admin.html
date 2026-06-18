@@ -360,7 +360,7 @@
                 { header: '중분류', getValue: (submission) => submission.data['중분류'] },
                 { header: '소분류', getValue: (submission) => submission.data['소분류'] },
                 { header: '제안 제목', getValue: (submission) => submission.data['제안명'] },
-                { header: '제안 내용 상세', getValue: (submission) => getProposalDetail(submission) },
+                { header: '제안 내용 상세', getValue: (submission) => submission.data['제안안 설명'] || '' },
                 { header: '수정상태', getValue: getCompletionText }
             ];
             const headerCells = excelColumns
@@ -426,32 +426,6 @@
             link.remove();
             URL.revokeObjectURL(url);
             setMessage('엑셀 파일을 다운로드했습니다.');
-        }
-
-        function getProposalDetail(submission) {
-            const data = submission.data || {};
-
-            if (data['제안 내용 상세']) {
-                return data['제안 내용 상세'];
-            }
-
-            const detailFields = [
-                '현상 및 문제점',
-                '제안안 설명',
-                '유형효과',
-                '무형효과',
-                '제약조건',
-                '투자비',
-                '과제 수행 계획'
-            ];
-
-            return detailFields
-                .map((field) => {
-                    const value = data[field] || '';
-                    return value ? `[${field}] ${value}` : '';
-                })
-                .filter(Boolean)
-                .join(' ');
         }
 
         function normalizeExcelText(value) {
