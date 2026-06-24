@@ -24,6 +24,7 @@
         tr:nth-child(10) th:first-child,
         tr:nth-child(11) th:first-child { text-align: center; }
         input, textarea, select { width: 100%; padding: 8px; box-sizing: border-box; }
+        input[readonly] { background-color: #fafafa; color: #333; }
         .split-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
         .attachment-field { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         .attachment-field button.secondary { width: auto; flex-shrink: 0; }
@@ -60,7 +61,7 @@
                 <th>제안명</th>
                 <td colspan="3"><input type="text" name="proposal_title" required></td>
                 <th>제안일</th>
-                <td><input type="date" name="proposal_date"></td>
+                <td><input type="date" name="proposal_date" id="proposalDateInput" readonly></td>
             </tr>
             <tr>
                 <th>제안분야</th>
@@ -126,6 +127,7 @@
         const attachmentInput = document.getElementById('attachmentInput');
         const attachmentButton = document.getElementById('attachmentButton');
         const attachmentFileName = document.getElementById('attachmentFileName');
+        const proposalDateInput = document.getElementById('proposalDateInput');
         const message = document.getElementById('message');
         const API_BASE = '';
 
@@ -155,6 +157,20 @@
             message.textContent = text;
             message.classList.toggle('error', isError);
         }
+
+        function getTodayDateString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function setProposalDate() {
+            proposalDateInput.value = getTodayDateString();
+        }
+
+        setProposalDate();
 
         function getFormRow() {
             const data = new FormData(form);
@@ -258,6 +274,7 @@
                 }
 
                 form.reset();
+                setProposalDate();
                 resetAttachmentField();
                 setMessage('제출 내용이 로컬 서버에 저장되었습니다.');
             } catch (error) {
